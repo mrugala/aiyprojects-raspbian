@@ -27,6 +27,7 @@ import configargparse
 
 import aiy.audio
 import aiy.i18n
+import aiy.voicehat
 import auth_helpers
 import action
 import speech
@@ -180,6 +181,12 @@ def main():
             do_recognition(args, recorder, recognizer, player, status_ui)
 
 
+def stop_music():
+    say = aiy.audio.say
+    yt = action.YoutubeCommand(say, 'stop')
+    yt.run('')
+        
+
 def do_assistant_library(args, credentials, player, status_ui):
     """Run a recognizer using the Google Assistant Library.
 
@@ -206,6 +213,7 @@ installed with:
 
         if event.type == EventType.ON_START_FINISHED:
             status_ui.status('ready')
+            aiy.voicehat.get_button().on_press(stop_music)
             if sys.stdout.isatty():
                 print('Say "OK, Google" then speak, or press Ctrl+C to quit...')
 

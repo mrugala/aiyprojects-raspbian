@@ -17,6 +17,8 @@
 import datetime
 import logging
 import subprocess
+import psutil
+import re
 
 import phue
 from rgbxy import Converter
@@ -160,7 +162,7 @@ class VolumeControl(object):
     GET_VOLUME = r'amixer get Master | grep "Front Left:" | sed "s/.*\[\([0-9]\+\)%\].*/\1/"'
     SET_VOLUME = 'amixer -q set Master %d%%'
 
-    def __init__(self, say, change):
+    def __init__(self, say, change = None):
         self.say = say
         self.change = change
 
@@ -168,13 +170,22 @@ class VolumeControl(object):
         res = subprocess.check_output(VolumeControl.GET_VOLUME, shell=True).strip()
         try:
             logging.info("volume: %s", res)
-            vol = int(res) + self.change
+            if (self.change is not None):
+                vol = int(res) + self.change
+            else:
+                numstring = voice_command.lower().replace("set volume to ", "", 1)
+                try:
+                    vol = int(numstring)
+                except ValueError:
+                    say("Volume not adjusted")
+                    logging.exception("Invalid volume value.")
+                    return
+                        
             vol = max(0, min(100, vol))
             subprocess.call(VolumeControl.SET_VOLUME % vol, shell=True)
-            self.say(_('Volume at %d %%.') % vol)
+            self.say('Volume at %d %%.' % vol)
         except (ValueError, subprocess.CalledProcessError):
             logging.exception("Error using amixer to adjust volume.")
-
 
 # Example: Repeat after me
 # ========================
@@ -262,6 +273,36 @@ class PowerCommand(object):
 # Makers! Implement your own actions here.
 # =========================================
 
+playshell = None
+class YoutubeCommand(object):
+    
+    def __init__(self, say, command):
+        self.say = say
+        self.command = command
+
+    def run(self, voice_command):
+        if self.command == 'play':
+            pattern = re.compile("play", re.IGNORECASE)
+            track = pattern.sub('', voice_command, 1)
+            self.say("playing " + track + "from youtube")
+        
+            global playshell
+            if playshell is None:
+                playshell = subprocess.Popen(["/usr/local/bin/mpsyt",""],stdin=subprocess.PIPE ,stdout=subprocess.PIPE)
+
+            playshell.stdin.write(bytes('/' + track + '\n1\n', 'utf-8'))
+            playshell.stdin.flush()
+        elif self.command == 'stop':
+            self.stop()
+    
+    def stop(self):
+        if self._is_playing():
+            self.say('stopping music')
+            pkill = subprocess.Popen(["/usr/bin/pkill","vlc"],stdin=subprocess.PIPE)
+        
+    def _is_playing(self):
+        return ("vlc" in (p.name() for p in psutil.process_iter()))
+
 
 def make_actor(say):
     """Create an actor to carry out the user's commands."""
@@ -276,6 +317,7 @@ def make_actor(say):
     actor.add_keyword(_('volume up'), VolumeControl(say, 10))
     actor.add_keyword(_('volume down'), VolumeControl(say, -10))
     actor.add_keyword(_('max volume'), VolumeControl(say, 100))
+    actor.add_keyword(_('set volume to'), VolumeControl(say))
 
     actor.add_keyword(_('repeat after me'),
                       RepeatAfterMe(say, _('repeat after me')))
@@ -284,8 +326,12 @@ def make_actor(say):
     # Makers! Add your own voice commands here.
     # =========================================
 
-    actor.add_keyword(_('raspberry power off'), PowerCommand(say, 'shutdown'))
-    actor.add_keyword(_('raspberry reboot'), PowerCommand(say, 'reboot'))
+    actor.add_keyword(_('power off'), PowerCommand(say, 'shutdown'))
+    actor.add_keyword(_('reboot'), PowerCommand(say, 'reboot'))
+
+    actor.add_keyword(_('play'), YoutubeCommand(say, 'play'))
+    actor.add_keyword(_('stop'), YoutubeCommand(say, 'stop'))
+
 
     return actor
 
